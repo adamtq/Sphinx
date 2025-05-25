@@ -65,20 +65,10 @@ if uploaded_file:
             score += len(extract_keywords(ref_row['Discrepancy Text']).intersection(extract_keywords(comp_row['Discrepancy Text']))) * 0.05
             return round(min(score, 1.0) * 100, 1)
 
-        # --- Slider FIX: Do not set session_state after instantiation ---
         if 'threshold' not in st.session_state:
             st.session_state['threshold'] = 80.0
-        threshold = st.slider(
-            "Similarity Threshold (%)",
-            0.0,
-            100.0,
-            st.session_state['threshold'],
-            step=1.0,
-            key='thresh_slider'
-        )
-        # Only update session_state['threshold'] if the slider value has changed
-        if threshold != st.session_state['threshold']:
-            st.session_state['threshold'] = threshold
+        threshold = st.slider("Similarity Threshold (%)", 0.0, 100.0, st.session_state['threshold'], step=1.0, key='thresh_slider')
+        st.session_state['threshold'] = threshold
 
         scores = [(row['NCR Number'], get_similarity_score(selected_row, row)) for _, row in ncr_df.iterrows() if row['NCR Number'] != selected_ncr]
         result_df = ncr_df.set_index('NCR Number').copy()
@@ -98,6 +88,7 @@ if uploaded_file:
         # --- LLM PAIRWISE TO SELECTED NCR ONLY ---
         if st.button("Run LLM Analysis on Matches"):
             openai.api_key = os.getenv("OPENAI_API_KEY")
+            # Build prompt and context for pairwise analysis
             ref_text = selected_row['Discrepancy Text']
             ref_part = selected_row['Part Number']
             system_prompt = f"""
@@ -127,6 +118,7 @@ For each candidate NCR below, state if it describes the SAME TYPE OF ISSUE and w
                     st.session_state['llm_explanation'] = explanation
                     st.session_state['llm_table'] = final_table[["NCR Number", "Part Number", "Discrepancy Text", "Similarity", "Reason"]]
                     st.session_state['ticked_cost_ncrs'] = final_table['NCR Number'].tolist()
+                    # Store for summary in LLM Review
                     st.session_state['llm_discrepancy_texts'] = final_table['Discrepancy Text'].tolist()
                     st.session_state['llm_disposition_texts'] = ncr_df[ncr_df['NCR Number'].isin(final_table['NCR Number'])]['Disposition Text'].tolist()
                     st.session_state['llm_ticked_cost'] = cost_df[cost_df['NCR Number'].isin(final_table['NCR Number'])]['Total Cost (£)'].sum()
@@ -153,6 +145,7 @@ For each candidate NCR below, state if it describes the SAME TYPE OF ISSUE and w
             disposition_texts = "\n".join(st.session_state['llm_disposition_texts'])
             total_cost = st.session_state['llm_ticked_cost']
 
+            # Prepare analysis prompt
             summary_prompt = f"""
 You are an expert aerospace engineering analyst.
 Below is a batch of NCR discrepancy texts and disposition texts, with associated cost {total_cost:,.2f} pounds.
@@ -184,6 +177,7 @@ Use bullet points or paragraphs as you see fit, but be thorough and easy to foll
                 st.session_state['llm_summaries'] = summary_text
 
         if st.session_state['llm_summaries']:
+            # Split the two summaries and display them in separate boxes
             summary_text = st.session_state['llm_summaries']
             disc_label = "**Combined Discrepancy Summary**"
             disp_label = "**Combined Disposition Summary**"
@@ -247,6 +241,7 @@ Use bullet points or paragraphs as you see fit, but be thorough and easy to foll
             fig.tight_layout()
             st.pyplot(fig)
 
+    # ---- NCR Timeline (from working app1 version) ----
     elif page == "NCR Timeline":
         st.title("NCR Timeline Viewer")
         st.write("Visualise the timeline of NCRs by Aircraft Number, Part Number, or Order Number.")
@@ -295,7 +290,9 @@ Use bullet points or paragraphs as you see fit, but be thorough and easy to foll
                 ax.set_yticks([])
                 ax.set_yticklabels([])
                 ax.set_xlabel("Date")
-                ax.set_xlim([min_date, max_date])
+                ax.set_ylim(-0.4, 0.35)
+                if pd.notnull(min_date) and pd.notnull(max_date):
+                    ax.set_xlim(min_date, max_date)
                 ax.xaxis.set_major_locator(mdates.AutoDateLocator())
                 ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
                 plt.tight_layout()
